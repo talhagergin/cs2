@@ -34,8 +34,16 @@ final class Marker {
     }
 }
 
-enum MarkerType: String, Codable {
+enum MarkerType: String, Codable, CaseIterable {
     case smoke = "Smoke"
     case flash = "Flash"
     case molly = "Molly"
+    
+    var imageName: String {
+        switch self {
+        case .smoke: return "smoke_icon"
+        case .flash: return "flash_icon"
+        case .molly: return "molly_icon"
+        }
+    }
 } 

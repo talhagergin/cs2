@@ -6,100 +6,84 @@ struct MapDetailView: View {
     @StateObject private var viewModel = MapViewModel()
     @Bindable var map: GameMap
     @EnvironmentObject var authVM: AuthViewModel
-    @State private var scale: CGFloat = 1.0
-    @State private var lastScale: CGFloat = 1.0
-    @State private var offset = CGPoint.zero
-    @State private var lastOffset = CGPoint.zero
-    @State private var showingMarkerOptions = false
     @State private var selectedPosition: CGPoint?
+    @State private var showingMarkerOptions = false
     @State private var showingVideoInput = false
     @State private var selectedMarkerType: MarkerType?
     @State private var videoURL: String = ""
     @State private var selectedMarker: Marker?
     @State private var showingVideo = false
-    @State private var frameSize: CGSize = .zero
-    @State private var imageSize: CGSize = .zero
-    
-    init(map: GameMap) {
-        self.map = map
-        _viewModel = StateObject(wrappedValue: MapViewModel())
-    }
+    @State private var mapSize: CGSize = .zero
     
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
+            // Harita Bölümü - Sabit Yükseklik
             GeometryReader { geometry in
                 ZStack {
+                    // Harita
                     Image(map.imageURL)
                         .resizable()
                         .scaledToFit()
-                        .scaleEffect(scale)
-                        .offset(x: offset.x, y: offset.y)
                         .background(
                             GeometryReader { imageGeometry in
                                 Color.clear.onAppear {
-                                    imageSize = imageGeometry.size
+                                    mapSize = imageGeometry.size
                                 }
                             }
                         )
-                        .gesture(
-                            MagnificationGesture()
-                                .onChanged { value in
-                                    let delta = value / lastScale
-                                    lastScale = value
-                                    let newScale = scale * delta
-                                    scale = min(max(newScale, 1.0), 4.0)
-                                }
-                                .onEnded { _ in
-                                    lastScale = 1.0
-                                }
-                        )
-                        .gesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    let newOffset = CGPoint(
-                                        x: lastOffset.x + value.translation.width,
-                                        y: lastOffset.y + value.translation.height
-                                    )
-                                    let maxOffset = (scale - 1) * imageSize.width / 2
-                                    offset.x = min(max(newOffset.x, -maxOffset), maxOffset)
-                                    offset.y = min(max(newOffset.y, -maxOffset), maxOffset)
-                                }
-                                .onEnded { _ in
-                                    lastOffset = offset
+                        .overlay(
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture { location in
+                                    if authVM.currentUser?.isAdmin == true {
+                                        // Göreli pozisyonu hesapla
+                                        let imageFrame = geometry.frame(in: .local)
+                                        let relativeX = location.x - imageFrame.minX
+                                        let relativeY = location.y - imageFrame.minY
+                                        selectedPosition = CGPoint(x: relativeX, y: relativeY)
+                                        showingMarkerOptions = true
+                                    }
                                 }
                         )
-                        .simultaneousGesture(
-                            TapGesture(count: 2).onEnded {
-                                withAnimation {
-                                    scale = scale > 1.0 ? 1.0 : 2.0
-                                    offset = .zero
-                                    lastOffset = .zero
-                                }
-                            }
-                        )
-                        .onTapGesture { location in
-                            if authVM.currentUser?.isAdmin == true {
-                                selectedPosition = location
-                                showingMarkerOptions = true
-                            }
-                        }
                     
-                    // Markers overlay
-                    ForEach(map.markers) { marker in
-                        MarkerView(marker: marker)
-                            .onTapGesture {
-                                selectedMarker = marker
-                                showingVideo = true
-                            }
+                    // Markerları Göster
+                    if !map.markers.isEmpty {
+                        ForEach(map.markers) { marker in
+                            MarkerView(marker: marker, mapSize: mapSize)
+                                .onTapGesture {
+                                    selectedMarker = marker
+                                    showingVideo = true
+                                }
+                        }
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(height: UIScreen.main.bounds.height * 0.6)
             
-            // Video Player alanı
-            if let selectedMarker = selectedMarker {
-                VideoPlayerView(url: selectedMarker.videoURL)
-                    .frame(height: 200)
+            // Marker İstatistikleri
+            ScrollView {
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Utility Sayıları")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    ForEach(MarkerType.allCases, id: \.self) { type in
+                        HStack {
+                            Image(type.imageName)
+                                .resizable()
+                                .frame(width: 24, height: 24)
+                            
+                            Text(type.rawValue)
+                            
+                            Spacer()
+                            
+                            Text("\(map.markers.filter { $0.type == type }.count)")
+                                .font(.headline)
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+                .padding(.vertical)
             }
         }
         .navigationTitle(map.name)
@@ -140,7 +124,14 @@ struct MapDetailView: View {
             }
         }
         .onAppear {
+            // Mevcut markerları yükle
             viewModel.loadMarkers(for: map, context: modelContext)
+            
+            // Marker'ları güncelle
+            map.markers.forEach { marker in
+                modelContext.insert(marker)
+            }
+            try? modelContext.save()
         }
     }
     
@@ -154,15 +145,29 @@ struct MapDetailView: View {
               let type = selectedMarkerType,
               !videoURL.isEmpty else { return }
         
+        // Pozisyonu normalize et
+        let normalizedPosition = CGPoint(
+            x: position.x / mapSize.width,
+            y: position.y / mapSize.height
+        )
+        
         let marker = Marker(
             type: type,
-            position: position,
+            position: normalizedPosition,
             videoURL: videoURL,
             map: map
         )
         
+        // Önce marker'ı ekle
         modelContext.insert(marker)
+        
+        // Sonra map.markers array'ini güncelle
+        if map.markers == nil {
+            map.markers = []
+        }
         map.markers.append(marker)
+        
+        // Değişiklikleri kaydet
         try? modelContext.save()
         
         // Reset states

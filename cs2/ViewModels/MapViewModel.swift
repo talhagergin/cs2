@@ -10,15 +10,9 @@ final class MapViewModel: ObservableObject {
         do {
             let descriptor = FetchDescriptor<Marker>()
             let allMarkers = try context.fetch(descriptor)
-            
-            // İlgili haritaya ait markerları filtrele
-            let filteredMarkers = allMarkers.filter { marker in
-                marker.map?.id == map.id
-            }
-            
-            // Haritanın markers array'ini güncelle
-            map.markers = filteredMarkers
-            
+            let mapMarkers = allMarkers.filter { $0.map?.id == map.id }
+            map.markers = mapMarkers
+            try? context.save()
         } catch {
             print("Error loading markers: \(error)")
         }
