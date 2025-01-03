@@ -14,13 +14,18 @@ struct MapDetailView: View {
     @State private var selectedMarker: Marker?
     @State private var showingVideo = false
     @State private var mapSize: CGSize = .zero
+    @State private var selectedFilter: MarkerType?
+    
+    var filteredMarkers: [Marker] {
+        guard let filter = selectedFilter else { return map.markers }
+        return map.markers.filter { $0.type == filter }
+    }
     
     var body: some View {
         VStack(spacing: 0) {
-            // Harita Bölümü - Sabit Yükseklik
+            // Harita Bölümü
             GeometryReader { geometry in
                 ZStack {
-                    // Harita
                     Image(map.imageURL)
                         .resizable()
                         .scaledToFit()
@@ -36,54 +41,66 @@ struct MapDetailView: View {
                                 .contentShape(Rectangle())
                                 .onTapGesture { location in
                                     if authVM.currentUser?.isAdmin == true {
-                                        // Göreli pozisyonu hesapla
                                         let imageFrame = geometry.frame(in: .local)
-                                        let relativeX = location.x - imageFrame.minX
-                                        let relativeY = location.y - imageFrame.minY
-                                        selectedPosition = CGPoint(x: relativeX, y: relativeY)
+                                        selectedPosition = CGPoint(
+                                            x: location.x - imageFrame.minX,
+                                            y: location.y - imageFrame.minY
+                                        )
                                         showingMarkerOptions = true
                                     }
                                 }
                         )
                     
                     // Markerları Göster
-                    if !map.markers.isEmpty {
-                        ForEach(map.markers) { marker in
-                            MarkerView(marker: marker, mapSize: mapSize)
-                                .onTapGesture {
-                                    selectedMarker = marker
-                                    showingVideo = true
-                                }
-                        }
+                    ForEach(filteredMarkers) { marker in
+                        MarkerView(marker: marker, mapSize: mapSize)
+                            .onTapGesture {
+                                selectedMarker = marker
+                                showingVideo = true
+                            }
                     }
                 }
             }
             .frame(height: UIScreen.main.bounds.height * 0.6)
             
-            // Marker İstatistikleri
+            // Utility Kategorileri
             ScrollView {
                 VStack(alignment: .leading, spacing: 15) {
-                    Text("Utility Sayıları")
+                    Text("Utility Kategorileri")
                         .font(.headline)
                         .padding(.horizontal)
                     
                     ForEach(MarkerType.allCases, id: \.self) { type in
-                        HStack {
-                            Image(type.imageName)
-                                .resizable()
-                                .frame(width: 24, height: 24)
-                            
-                            Text(type.rawValue)
-                            
-                            Spacer()
-                            
-                            Text("\(map.markers.filter { $0.type == type }.count)")
-                                .font(.headline)
+                        Button(action: {
+                            withAnimation {
+                                selectedFilter = selectedFilter == type ? nil : type
+                            }
+                        }) {
+                            HStack {
+                                Image(type.imageName)
+                                    .resizable()
+                                    .frame(width: 24, height: 24)
+                                
+                                Text(type.rawValue)
+                                
+                                Spacer()
+                                
+                                Text("\(map.markers.filter { $0.type == type }.count)")
+                                    .font(.headline)
+                            }
+                            .padding(.horizontal)
+                            .background(selectedFilter == type ? Color.blue.opacity(0.2) : Color.clear)
+                            .cornerRadius(8)
                         }
-                        .padding(.horizontal)
+                        .buttonStyle(PlainButtonStyle())
                     }
                 }
                 .padding(.vertical)
+            }
+        }
+        .onChange(of: showingVideo) { _, isShowing in
+            if !isShowing {
+                selectedMarker = nil
             }
         }
         .navigationTitle(map.name)
@@ -145,30 +162,22 @@ struct MapDetailView: View {
               let type = selectedMarkerType,
               !videoURL.isEmpty else { return }
         
-        // Pozisyonu normalize et
-        let normalizedPosition = CGPoint(
-            x: position.x / mapSize.width,
-            y: position.y / mapSize.height
-        )
-        
         let marker = Marker(
             type: type,
-            position: normalizedPosition,
+            position: position,
             videoURL: videoURL,
             map: map
         )
         
-        // Önce marker'ı ekle
-        modelContext.insert(marker)
-        
-        // Sonra map.markers array'ini güncelle
-        if map.markers == nil {
-            map.markers = []
-        }
+        // Marker'ı ilişkiye ekleyin
         map.markers.append(marker)
         
-        // Değişiklikleri kaydet
-        try? modelContext.save()
+        // SwiftData bağlamında değişiklikleri kaydedin
+        do {
+            try modelContext.save()
+        } catch {
+            print("Hata: \(error.localizedDescription)")
+        }
         
         // Reset states
         selectedPosition = nil
@@ -176,4 +185,5 @@ struct MapDetailView: View {
         videoURL = ""
         showingVideoInput = false
     }
+
 } 

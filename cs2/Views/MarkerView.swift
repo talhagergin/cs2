@@ -8,10 +8,8 @@ struct MarkerView: View {
         Image(marker.type.imageName)
             .resizable()
             .frame(width: 30, height: 30)
-            .position(
-                x: marker.position.x * mapSize.width,
-                y: marker.position.y * mapSize.height
-            )
+            .position(marker.position)
             .shadow(radius: 2)
+            .animation(.spring(), value: marker.position)
     }
 } 
